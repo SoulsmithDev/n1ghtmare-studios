@@ -112,6 +112,12 @@
         padding-top:13px; border-top:1px solid var(--edge)}
   .foot span{margin-left:auto; font:11px/1 ui-monospace,Menlo,monospace;
              color:var(--dim); font-variant-numeric:tabular-nums}
+  /* GitHub Pages skickar max-age=600 pa HTML och vi kan inte satta egna
+     huvuden. Byggmarket gor darfor cachefragan till en blick i stallet
+     for en felsokning: syns fel datum ar det en gammal kopia, punkt. */
+  .build{margin:16px 0 0; font:10.5px/1 ui-monospace,Menlo,monospace;
+         letter-spacing:.08em; color:#4d565b; text-align:right}
+  .build b{font-weight:400; color:var(--dim)}
 
   @media (max-width:600px){
     /* Pa telefon ar en vansterdocka fel: bottenpanelen ar nara tummen. */
@@ -161,6 +167,8 @@
   <div class="sl"><label for="s-c">Drift</label><input type="range" id="s-c" min="-30" max="30" step="1"><output id="o-c"></output></div>
 
   <div class="row" id="palettes" style="margin-top:14px; margin-bottom:0"></div>
+
+  <p class="build">Build <b id="ver"></b></p>
 
   <div class="foot">
     <button id="shuffle" style="flex:0 0 auto; min-width:92px; min-height:38px; padding:9px 12px; background:#151d22; border:1px solid var(--edge); border-radius:10px; color:var(--dim); font:600 11.5px/1 ui-sans-serif,system-ui,sans-serif; letter-spacing:.13em; text-transform:uppercase; cursor:pointer">Shuffle</button>
@@ -315,6 +323,9 @@ const vao = gl.createVertexArray();
 /* ═══════════════════════════════════════════════════════════════════
    Lage
    ═══════════════════════════════════════════════════════════════════ */
+const BUILD = "2026-09-09b";
+$("ver").textContent = BUILD;
+
 const P = { p:1, q:0, twist:9, sides:0, girth:0.42, dots:52, size:19,
              spin:14, flow:10, drift:5 };
 const SIDES = [0, 3, 4, 5, 6, 8];
