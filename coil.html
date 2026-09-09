@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Coil | N1ghtmare Studios Lab</title>
+<meta name="description" content="A knot drawn as a hundred thousand points, turning in your browser. No textures, no meshes, no images: every dot is solved from an equation on your GPU.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="Coil | N1ghtmare Studios Lab">
+<meta property="og:description" content="A knot drawn as a hundred thousand points, turning in your browser.">
+<meta property="og:image" content="https://n1ghtmarestudios.com/og-2026-08.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  :root{
+    --void:#06080a;
+    --chrome:#0d1216;
+    --edge:#233139;
+    --ink:#dfe3e4;
+    --dim:#7d888e;
+    --glow:#dcae52;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--void); color:var(--ink); overflow:hidden;
+    font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    -webkit-tap-highlight-color:transparent;
+  }
+  canvas{position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none}
+
+  /* Titeln ligger uppe till hoger sa den aldrig krockar med panelen. */
+  #title{
+    position:fixed; z-index:3; top:16px; right:20px; text-align:right;
+    pointer-events:none; user-select:none;
+  }
+  #title h1{
+    margin:0; font:700 15px/1 ui-sans-serif,system-ui,sans-serif;
+    letter-spacing:.34em; text-transform:uppercase; color:var(--glow);
+  }
+  #title p{
+    margin:7px 0 0; font:11px/1 ui-sans-serif,system-ui,sans-serif;
+    letter-spacing:.22em; text-transform:uppercase; color:var(--dim);
+  }
+  #title a{color:var(--dim); text-decoration:none; pointer-events:auto}
+  #title a:hover{color:var(--glow)}
+
+  /* Panelen dockas till vanster. Motivet star i mitten, sa mitt over bilden
+     ar den enda plats den inte far sta. Samma lardom som i Tendril. */
+  #panel{
+    position:fixed; z-index:4; left:12px; right:auto;
+    top:76px; bottom:calc(env(safe-area-inset-bottom,0px) + 12px);
+    width:318px; max-width:calc(100vw - 24px); margin:0;
+    background:color-mix(in srgb, var(--chrome) 96%, transparent);
+    border:1px solid var(--edge); border-radius:16px;
+    backdrop-filter:blur(10px); padding:16px 16px 18px;
+    transform:translateX(calc(-100% - 20px));
+    transition:transform .32s cubic-bezier(.3,.8,.4,1);
+    overflow-y:auto;
+  }
+  #panel.open{transform:none}
+  /* Oppen redan i markup:en. En inglidning med backdrop-filter over en
+     canvas som ritar om sig ar en garanterad hackning precis vid start. */
+  #panel.noanim{transition:none}
+
+  #toggle{
+    position:fixed; z-index:5; left:14px; top:14px;
+    height:50px; padding:0 18px; border-radius:14px;
+    background:color-mix(in srgb, var(--chrome) 96%, transparent);
+    border:2px solid var(--glow); color:var(--glow);
+    box-shadow:0 0 18px color-mix(in srgb, var(--glow) 40%, transparent);
+    backdrop-filter:blur(10px); cursor:pointer;
+    display:flex; align-items:center; gap:9px;
+    font:600 13px/1 ui-sans-serif,system-ui,sans-serif; letter-spacing:.14em;
+  }
+  #toggle b{font-size:18px; font-weight:400; line-height:1}
+  @media (prefers-reduced-motion:reduce){ #panel{transition:none} }
+
+  .row{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px}
+  .row button{
+    flex:1 1 auto; min-width:78px; min-height:40px; padding:9px 6px;
+    background:#151d22; border:1px solid var(--edge); border-radius:10px;
+    color:var(--dim); font:600 11.5px/1 ui-sans-serif,system-ui,sans-serif;
+    letter-spacing:.13em; text-transform:uppercase; cursor:pointer;
+    transition:color .16s, border-color .16s;
+  }
+  .row button:hover{color:var(--ink)}
+  .row button.on{color:var(--glow); border-color:var(--glow); background:#1b2228}
+
+  .sl{display:grid; grid-template-columns:82px 1fr 44px; align-items:center;
+      gap:10px; margin-bottom:7px}
+  .sl label{font:11px/1 ui-sans-serif,system-ui,sans-serif; letter-spacing:.15em;
+            text-transform:uppercase; color:var(--dim)}
+  .sl output{font:12px/1 ui-monospace,Menlo,monospace; color:var(--ink);
+             text-align:right; font-variant-numeric:tabular-nums}
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:28px;
+    background:transparent; cursor:pointer; margin:0;
+  }
+  input[type=range]::-webkit-slider-runnable-track{height:2px; background:var(--edge)}
+  input[type=range]::-moz-range-track{height:2px; background:var(--edge)}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:18px; height:18px; border-radius:50%;
+    background:var(--glow); margin-top:-8px; border:0;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:18px; height:18px; border-radius:50%; background:var(--glow); border:0;
+  }
+
+  .hint{font:10.5px/1.5 ui-sans-serif,system-ui,sans-serif; letter-spacing:.05em;
+        color:var(--dim); margin:-4px 0 14px}
+  .foot{display:flex; align-items:center; gap:8px; margin-top:14px;
+        padding-top:13px; border-top:1px solid var(--edge)}
+  .foot span{margin-left:auto; font:11px/1 ui-monospace,Menlo,monospace;
+             color:var(--dim); font-variant-numeric:tabular-nums}
+
+  @media (max-width:600px){
+    /* Pa telefon ar en vansterdocka fel: bottenpanelen ar nara tummen. */
+    #panel{
+      left:12px; right:12px; width:auto; max-width:560px; margin:0 auto;
+      top:auto; bottom:calc(env(safe-area-inset-bottom,0px) + 12px);
+      max-height:calc(100vh - 92px); padding:14px 14px 16px;
+      transform:translateY(calc(100% + 24px));
+    }
+    #panel.open{transform:none}
+    #toggle{
+      left:auto; right:14px; top:auto;
+      bottom:calc(env(safe-area-inset-bottom,0px) + 14px);
+      width:62px; height:62px; padding:0; border-radius:50%;
+      justify-content:center;
+    }
+    #toggle span{display:none}
+    #title{top:14px; right:16px}
+    .sl{grid-template-columns:74px 1fr 42px}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="title">
+  <h1>Coil</h1>
+  <p><a href="/">N1ghtmare Studios</a> Lab</p>
+</div>
+
+<button id="toggle" aria-label="Controls"><b>&#10042;</b><span>CONTROLS</span></button>
+
+<div id="panel" class="open noanim">
+  <div class="row" id="presets"></div>
+  <p class="hint">Drag to turn it. Scroll or pinch to move closer.</p>
+
+  <div class="sl"><label for="s-p">Winds</label><input type="range" id="s-p" min="1" max="9" step="1"><output id="o-p"></output></div>
+  <div class="sl"><label for="s-q">Through</label><input type="range" id="s-q" min="0" max="11" step="1"><output id="o-q"></output></div>
+  <div class="sl"><label for="s-t">Twist</label><input type="range" id="s-t" min="0" max="24" step="1"><output id="o-t"></output></div>
+  <div class="sl"><label for="s-s">Section</label><input type="range" id="s-s" min="0" max="5" step="1"><output id="o-s"></output></div>
+  <div class="sl"><label for="s-g">Girth</label><input type="range" id="s-g" min="12" max="90" step="1"><output id="o-g"></output></div>
+  <div class="sl"><label for="s-d">Dots</label><input type="range" id="s-d" min="10" max="100" step="1"><output id="o-d"></output></div>
+  <div class="sl"><label for="s-z">Dot size</label><input type="range" id="s-z" min="6" max="40" step="1"><output id="o-z"></output></div>
+  <div class="sl"><label for="s-r">Spin</label><input type="range" id="s-r" min="0" max="40" step="1"><output id="o-r"></output></div>
+
+  <div class="row" id="palettes" style="margin-top:14px; margin-bottom:0"></div>
+
+  <div class="foot">
+    <button id="shuffle" style="flex:0 0 auto; min-width:92px; min-height:38px; padding:9px 12px; background:#151d22; border:1px solid var(--edge); border-radius:10px; color:var(--dim); font:600 11.5px/1 ui-sans-serif,system-ui,sans-serif; letter-spacing:.13em; text-transform:uppercase; cursor:pointer">Shuffle</button>
+    <span id="hud">&mdash;</span>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+const cvs = document.getElementById("c");
+const gl = cvs.getContext("webgl2", { antialias:false, alpha:false, depth:false,
+                                      powerPreference:"high-performance" });
+if(!gl){
+  document.body.innerHTML =
+    '<p style="color:#7d888e;font:14px/1.6 system-ui;padding:40px;max-width:520px">' +
+    'Coil needs WebGL2. Any browser from the last few years has it, so this is ' +
+    'usually a graphics driver or a hardware acceleration setting.</p>';
+  return;
+}
+
+const $ = id => document.getElementById(id);
+
+/* ═══════════════════════════════════════════════════════════════════
+   Ingen geometri laddas upp. Punkterna finns inte i minnet: varje
+   vertex raknar fram sin egen plats pa knuten ur gl_VertexID, sa
+   CPU:n skickar bara ett tiotal tal per bildruta oavsett om det ar
+   tjugotusen prickar eller trehundratusen.
+   ═══════════════════════════════════════════════════════════════════ */
+const VS = `#version 300 es
+precision highp float;
+
+uniform float u_nu, u_nv;      // rutnatets uppdelning: langs och runt
+uniform float u_p, u_q;        // varv runt axeln, varv genom halet
+uniform float u_twist;         // hur mycket tvarsnittet vrids per varv
+uniform float u_sides;         // 0 = cirkel, annars regelbunden n-hörning
+uniform float u_girth;         // rorets tjocklek
+uniform mat3  u_rot;
+uniform float u_aspect, u_focal, u_dist, u_size, u_dpr;
+
+out float v_shade;
+out float v_fog;
+
+const float TAU = 6.283185307179586;
+
+// Mittlinjen. Vid q = 0 ar det en vanlig ring, annars en (p,q)-torusknut
+// som lindar sig p varv runt axeln och q varv genom halet.
+vec3 spine(float t){
+  float rr = 2.0 + cos(u_q * t);
+  return vec3(rr * cos(u_p * t), rr * sin(u_p * t), -sin(u_q * t));
+}
+
+// Tvarsnittets radie vid vinkeln a. Ger 1 for cirkeln, annars avstandet
+// ut till kanten pa en n-hörning med omskriven radie 1.
+float section(float a, float n){
+  if(n < 2.5) return 1.0;
+  float k = 3.14159265 / n;
+  return cos(k) / cos(mod(a, 2.0 * k) - k);
+}
+
+void main(){
+  float id = float(gl_VertexID);
+  float j  = mod(id, u_nv);            // varv runt roret
+  float i  = (id - j) / u_nv;          // steg langs mittlinjen
+
+  float t = i / u_nu * TAU;
+  float a = j / u_nv * TAU + u_twist * t;   // vridningen sitter har
+
+  vec3 c = spine(t);
+
+  // Ramen runt mittlinjen. Tangenten deriveras numeriskt, och referensen
+  // ar lindningens radiella riktning: den ar aldrig parallell med
+  // tangenten pa en torusknut, sa ramen kan inte kollapsa.
+  float h = 0.0015;
+  vec3 T = normalize(spine(t + h) - spine(t - h));
+  vec3 ref = vec3(cos(u_p * t), sin(u_p * t), 0.0);
+  vec3 N = normalize(ref - T * dot(ref, T));
+  vec3 B = cross(T, N);
+
+  float rho = u_girth * section(a, u_sides);
+  vec3 pos = c + (N * cos(a) + B * sin(a)) * rho;
+
+  vec3 pr = u_rot * pos;
+  float z = pr.z + u_dist;
+  float w = u_focal / max(0.35, z);
+
+  gl_Position  = vec4(pr.x * w / u_aspect, pr.y * w, 0.0, 1.0);
+  gl_PointSize = max(1.0, u_size * w * u_dpr);
+
+  // Narmare = ljusare och varmare. Det ar hela djupkanslan: inga
+  // skuggor, ingen djupbuffert, bara att bortre prickar tonas ner.
+  float d = clamp((u_dist + 3.2 - z) / 6.4, 0.0, 1.0);
+  v_shade = d;
+  v_fog   = mix(0.10, 1.0, d * d);
+}`;
+
+const FS = `#version 300 es
+precision highp float;
+in float v_shade;
+in float v_fog;
+uniform vec3 u_near, u_far;
+out vec4 o;
+void main(){
+  vec2 d = gl_PointCoord - 0.5;
+  float r2 = dot(d, d);
+  if(r2 > 0.25) discard;
+  float a = smoothstep(0.25, 0.015, r2);
+  // Additiv: dar fram- och baksidan overlappar adderas prickarna och
+  // gar mot vitt. Det ar moirén, och det ar hela poangen med punkter.
+  o = vec4(mix(u_far, u_near, v_shade) * a * v_fog, 1.0);
+}`;
+
+function compile(type, src){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+    throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS));
+gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog, gl.LINK_STATUS))
+  throw new Error(gl.getProgramInfoLog(prog));
+
+const U = {};
+for(let i = 0, n = gl.getProgramParameter(prog, gl.ACTIVE_UNIFORMS); i < n; i++){
+  const name = gl.getActiveUniform(prog, i).name;
+  U[name] = gl.getUniformLocation(prog, name);
+}
+const vao = gl.createVertexArray();
+
+/* ═══════════════════════════════════════════════════════════════════
+   Lage
+   ═══════════════════════════════════════════════════════════════════ */
+const P = { p:1, q:0, twist:9, sides:0, girth:0.42, dots:52, size:19, spin:14 };
+const SIDES = [0, 3, 4, 5, 6, 8];
+const SIDE_NAMES = ["○", "3", "4", "5", "6", "8"];
+
+const PALETTES = [
+  { name:"Ember", near:[1.00, 0.68, 0.30], far:[0.42, 0.16, 0.06] },
+  { name:"Ice",   near:[0.62, 0.90, 1.00], far:[0.06, 0.20, 0.36] },
+  { name:"Bloom", near:[1.00, 0.42, 0.52], far:[0.20, 0.08, 0.30] },
+  { name:"Bone",  near:[0.94, 0.93, 0.88], far:[0.16, 0.20, 0.24] },
+];
+let pal = 0;
+
+const PRESETS = [
+  { name:"Ring",    p:1, q:0, twist:0,  sides:0, girth:0.42 },
+  { name:"Twisted", p:1, q:0, twist:9,  sides:0, girth:0.42 },
+  { name:"Trefoil", p:2, q:3, twist:0,  sides:0, girth:0.30 },
+  { name:"Cinq",    p:2, q:5, twist:0,  sides:0, girth:0.24 },
+  { name:"Spool",   p:3, q:2, twist:4,  sides:0, girth:0.28 },
+  { name:"Forged",  p:1, q:0, twist:16, sides:2, girth:0.46 },
+];
+
+// Vy
+let yaw = 0.6, pitch = -0.42, dist = 8.4, autoYaw = 0;
+
+/* ═══════════════════════════════════════════════════════════════════
+   Duk
+   ═══════════════════════════════════════════════════════════════════ */
+let dpr = 1, W = 1, H = 1;
+function resize(){
+  // Kostnaden skalar med antal pixlar, sa taket sitter pa fonsterytan.
+  // Satts en gang per storleksandring, aldrig ur bildfrekvensen.
+  const area = Math.max(1, innerWidth * innerHeight);
+  const budget = Math.min(1, Math.sqrt(2600000 / area));
+  dpr = Math.min(devicePixelRatio || 1, 2) * budget;
+  W = cvs.width  = Math.max(1, Math.round(innerWidth  * dpr));
+  H = cvs.height = Math.max(1, Math.round(innerHeight * dpr));
+  gl.viewport(0, 0, W, H);
+}
+addEventListener("resize", resize);
+resize();
+
+/* ═══════════════════════════════════════════════════════════════════
+   Reglage
+   ═══════════════════════════════════════════════════════════════════ */
+function counts(){
+  const d = P.dots / 100;
+  // Runt roret racker det med far steg. Langs mittlinjen behovs manga,
+  // och fler ju mer knuten lindar sig, annars glesnar prickarna dar
+  // kurvan gar som fortast.
+  const laps = Math.max(1, P.p) + Math.max(0, P.q) * 0.5;
+  const nv = Math.round(24 + d * 96);
+  const nu = Math.round((260 + d * 1700) * Math.min(2.4, 0.55 + laps * 0.22));
+  return { nu, nv, total: nu * nv };
+}
+
+function syncUI(){
+  $("s-p").value = P.p;      $("o-p").textContent = P.p;
+  $("s-q").value = P.q;      $("o-q").textContent = P.q;
+  $("s-t").value = P.twist;  $("o-t").textContent = P.twist;
+  $("s-s").value = P.sides;  $("o-s").textContent = SIDE_NAMES[P.sides];
+  $("s-g").value = Math.round(P.girth * 100);
+  $("o-g").textContent = Math.round(P.girth * 100) + "%";
+  $("s-d").value = P.dots;   $("o-d").textContent = P.dots + "%";
+  $("s-z").value = P.size;   $("o-z").textContent = P.size;
+  $("s-r").value = P.spin;   $("o-r").textContent = P.spin;
+  document.querySelectorAll("#palettes button").forEach((b, i) =>
+    b.classList.toggle("on", i === pal));
+}
+
+function bind(id, out, key, read, write){
+  const el = $(id);
+  el.addEventListener("input", () => {
+    P[key] = read(parseFloat(el.value));
+    $(out).textContent = write(P[key]);
+    document.querySelectorAll("#presets button").forEach(b => b.classList.remove("on"));
+  });
+}
+const same = v => v;
+bind("s-p", "o-p", "p",     same, v => v);
+bind("s-q", "o-q", "q",     same, v => v);
+bind("s-t", "o-t", "twist", same, v => v);
+bind("s-s", "o-s", "sides", same, v => SIDE_NAMES[v]);
+bind("s-g", "o-g", "girth", v => v / 100, v => Math.round(v * 100) + "%");
+bind("s-d", "o-d", "dots",  same, v => v + "%");
+bind("s-z", "o-z", "size",  same, v => v);
+bind("s-r", "o-r", "spin",  same, v => v);
+
+const presetRow = $("presets");
+PRESETS.forEach((pre, i) => {
+  const b = document.createElement("button");
+  b.textContent = pre.name;
+  b.onclick = () => {
+    P.p = pre.p; P.q = pre.q; P.twist = pre.twist;
+    P.sides = pre.sides; P.girth = pre.girth;
+    syncUI();
+    presetRow.querySelectorAll("button").forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+  };
+  if(i === 1) b.classList.add("on");
+  presetRow.appendChild(b);
+});
+
+const palRow = $("palettes");
+PALETTES.forEach((pl, i) => {
+  const b = document.createElement("button");
+  b.textContent = pl.name;
+  b.onclick = () => { pal = i; syncUI(); };
+  palRow.appendChild(b);
+});
+
+$("shuffle").onclick = () => {
+  P.p = 1 + (Math.random() * 5 | 0);
+  P.q = Math.random() < 0.3 ? 0 : 2 + (Math.random() * 6 | 0);
+  P.twist = Math.random() < 0.5 ? 0 : (Math.random() * 18 | 0);
+  P.sides = Math.random() < 0.6 ? 0 : (Math.random() * 6 | 0);
+  P.girth = 0.18 + Math.random() * 0.3;
+  syncUI();
+  presetRow.querySelectorAll("button").forEach(x => x.classList.remove("on"));
+};
+
+const panel = $("panel"), toggle = $("toggle"), toggleLbl = toggle.querySelector("span");
+toggle.onclick = () => {
+  toggleLbl.textContent = panel.classList.toggle("open") ? "HIDE" : "CONTROLS";
+};
+toggleLbl.textContent = "HIDE";
+requestAnimationFrame(() => panel.classList.remove("noanim"));
+
+/* ═══════════════════════════════════════════════════════════════════
+   Dra och zooma
+   ═══════════════════════════════════════════════════════════════════ */
+const pointers = new Map();
+let dragging = false, lastX = 0, lastY = 0, pinch = 0, idle = 0;
+
+cvs.addEventListener("pointerdown", e => {
+  cvs.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+  if(pointers.size === 1){ dragging = true; lastX = e.clientX; lastY = e.clientY; }
+  else if(pointers.size === 2) pinch = spread();
+  idle = 0;
+});
+cvs.addEventListener("pointermove", e => {
+  if(!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+  idle = 0;
+  if(pointers.size === 2){
+    const s = spread();
+    if(pinch > 0) dist = clamp(dist * (pinch / s), 4.2, 22);
+    pinch = s;
+    return;
+  }
+  if(!dragging) return;
+  yaw   += (e.clientX - lastX) * 0.006;
+  pitch += (e.clientY - lastY) * 0.006;
+  pitch = clamp(pitch, -1.45, 1.45);
+  lastX = e.clientX; lastY = e.clientY;
+});
+function release(e){
+  pointers.delete(e.pointerId);
+  if(pointers.size < 2) pinch = 0;
+  if(pointers.size === 0) dragging = false;
+}
+cvs.addEventListener("pointerup", release);
+cvs.addEventListener("pointercancel", release);
+cvs.addEventListener("wheel", e => {
+  e.preventDefault();
+  dist = clamp(dist * (1 + Math.sign(e.deltaY) * 0.09), 4.2, 22);
+}, { passive:false });
+
+function spread(){
+  const v = [...pointers.values()];
+  return Math.hypot(v[0].x - v[1].x, v[0].y - v[1].y) || 1;
+}
+function clamp(v, a, b){ return v < a ? a : v > b ? b : v; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Rita
+   ═══════════════════════════════════════════════════════════════════ */
+gl.clearColor(0.024, 0.031, 0.039, 1);
+gl.disable(gl.DEPTH_TEST);
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.ONE, gl.ONE);   // additiv: overlapp lyser, ingen sortering behovs
+
+// Vrid runt Y, sen runt X. Kolumnordning, som GLSL vill ha den.
+// Autospinnet laggs pa yaw utan att rora det anvandaren dragit till.
+const rot = new Float32Array(9);
+function buildRot(){
+  const ay = yaw + autoYaw;
+  const cy = Math.cos(ay),    sy = Math.sin(ay);
+  const cp = Math.cos(pitch), sp = Math.sin(pitch);
+  rot[0] = cy;  rot[1] =  sy * sp;  rot[2] = -sy * cp;
+  rot[3] = 0;   rot[4] =  cp;       rot[5] =  sp;
+  rot[6] = sy;  rot[7] = -cy * sp;  rot[8] =  cy * cp;
+}
+
+const hud = $("hud");
+let last = performance.now(), frames = 0, acc = 0;
+
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+
+  if(!dragging){
+    idle += dt;
+    // Spinnet tar over mjukt nar handen slappt, sa den aldrig rycker igang.
+    autoYaw += P.spin * 0.0022 * Math.min(1, idle * 1.6);
+  }
+
+  buildRot();
+  const c = counts();
+  const pl = PALETTES[pal];
+
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.useProgram(prog);
+  gl.bindVertexArray(vao);
+
+  gl.uniform1f(U.u_nu, c.nu);
+  gl.uniform1f(U.u_nv, c.nv);
+  gl.uniform1f(U.u_p, P.p);
+  gl.uniform1f(U.u_q, P.q);
+  gl.uniform1f(U.u_twist, P.twist);
+  gl.uniform1f(U.u_sides, SIDES[P.sides]);
+  gl.uniform1f(U.u_girth, P.girth);
+  gl.uniform1f(U.u_aspect, W / Math.max(1, H));
+  gl.uniform1f(U.u_focal, 3.9);
+  gl.uniform1f(U.u_dist, dist);
+  gl.uniform1f(U.u_size, P.size * 0.09);
+  gl.uniform1f(U.u_dpr, dpr);
+  gl.uniform3f(U.u_near, pl.near[0], pl.near[1], pl.near[2]);
+  gl.uniform3f(U.u_far,  pl.far[0],  pl.far[1],  pl.far[2]);
+
+  gl.uniformMatrix3fv(U.u_rot, false, rot);
+
+  gl.drawArrays(gl.POINTS, 0, c.total);
+  gl.bindVertexArray(null);
+
+  frames++; acc += dt;
+  if(acc > 0.5){
+    hud.textContent = (c.total / 1000 | 0) + "k dots · " +
+                      Math.round(frames / acc) + " fps";
+    frames = 0; acc = 0;
+  }
+}
+
+syncUI();
+requestAnimationFrame(t => { last = t; loop(t); });
+
+})();
+</script>
+</body>
+</html>
