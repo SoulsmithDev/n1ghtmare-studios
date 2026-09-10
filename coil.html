@@ -161,8 +161,8 @@
   <div class="sl"><label for="s-t">Twist</label><input type="range" id="s-t" min="0" max="24" step="1"><output id="o-t"></output></div>
   <div class="sl"><label for="s-s">Section</label><input type="range" id="s-s" min="0" max="5" step="1"><output id="o-s"></output></div>
   <div class="sl"><label for="s-g">Girth</label><input type="range" id="s-g" min="12" max="90" step="1"><output id="o-g"></output></div>
-  <div class="sl"><label for="s-d">Dots</label><input type="range" id="s-d" min="2" max="100" step="1"><output id="o-d"></output></div>
-  <div class="sl"><label for="s-z">Dot size</label><input type="range" id="s-z" min="4" max="150" step="1"><output id="o-z"></output></div>
+  <div class="sl"><label for="s-d">Dots</label><input type="range" id="s-d" min="1" max="100" step="1"><output id="o-d"></output></div>
+  <div class="sl"><label for="s-z">Dot size</label><input type="range" id="s-z" min="4" max="420" step="1"><output id="o-z"></output></div>
   <div class="sl"><label for="s-r">Spin</label><input type="range" id="s-r" min="0" max="40" step="1"><output id="o-r"></output></div>
   <div class="sl"><label for="s-f">Flow</label><input type="range" id="s-f" min="0" max="40" step="1"><output id="o-f"></output></div>
   <div class="sl"><label for="s-c">Drift</label><input type="range" id="s-c" min="-30" max="30" step="1"><output id="o-c"></output></div>
@@ -215,7 +215,7 @@ uniform float u_flow;          // prickarnas vandring langs kurvan
 uniform float u_drift;         // prickarnas vandring runt roret
 uniform float u_invert;        // vinkeln pa fyrdimensionella vridningen
 uniform mat3  u_rot;
-uniform float u_aspect, u_focal, u_dist, u_size, u_dpr;
+uniform float u_aspect, u_focal, u_dist, u_size, u_dpr, u_psmax;
 
 out float v_shade;
 out float v_fog;
@@ -317,7 +317,10 @@ void main(){
   float w = u_focal / max(0.35, z);
 
   gl_Position  = vec4(pr.x * w / u_aspect, pr.y * w, 0.0, 1.0);
-  float ps = max(1.0, u_size * w * u_dpr);
+  // Taket kommer fran drivrutinen och ar inte samma overallt. Utan
+  // klampningen slutar reglaget bara ta effekt vid nagon godtycklig punkt,
+  // och pa vissa kort ritas ingenting alls over gransen.
+  float ps = clamp(u_size * w * u_dpr, 1.0, u_psmax);
   gl_PointSize = ps;
   // Sma prickar ska vara mjuka gnistor, stora ska vara parlor. Fragmentet
   // far veta hur stort det blev och valjer sjalv.
@@ -382,11 +385,12 @@ for(let i = 0, n = gl.getProgramParameter(prog, gl.ACTIVE_UNIFORMS); i < n; i++)
   U[name] = gl.getUniformLocation(prog, name);
 }
 const vao = gl.createVertexArray();
+const PS_MAX = Math.min(gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1] || 64, 512);
 
 /* ═══════════════════════════════════════════════════════════════════
    Lage
    ═══════════════════════════════════════════════════════════════════ */
-const BUILD = "2026-09-10b";
+const BUILD = "2026-09-10c";
 $("ver").textContent = BUILD;
 
 const P = { p:1, q:0, curl:1, twist:9, sides:0, girth:0.42, dots:52, size:19,
@@ -408,7 +412,7 @@ const PRESETS = [
   { name:"Serpent", p:1, q:6, curl:1.0, twist:2,  sides:0, girth:0.26, dots:58, size:16,  flow:22, drift:9  },
   { name:"Rosette", p:1, q:5, curl:2.6, twist:0,  sides:0, girth:0.18, dots:46, size:22,  flow:14, drift:0  },
   { name:"Whorl",   p:2, q:7, curl:2.3, twist:3,  sides:0, girth:0.13, dots:62, size:14,  flow:20, drift:6  },
-  { name:"Beads",   p:1, q:5, curl:2.4, twist:0,  sides:0, girth:0.16, dots:7,  size:104, flow:16, drift:0  },
+  { name:"Beads",   p:1, q:5, curl:2.4, twist:0,  sides:0, girth:0.16, dots:4,  size:250, flow:16, drift:7  },
   { name:"Trefoil", p:2, q:3, curl:1.0, twist:0,  sides:0, girth:0.30, dots:52, size:19,  flow:16, drift:4  },
   { name:"Spool",   p:3, q:2, curl:1.0, twist:4,  sides:0, girth:0.28, dots:52, size:19,  flow:12, drift:7  },
   { name:"Forged",  p:1, q:0, curl:1.0, twist:16, sides:2, girth:0.46, dots:44, size:24,  flow:6,  drift:0  },
@@ -448,10 +452,11 @@ function counts(){
   // och fler ju mer knuten lindar sig, annars glesnar prickarna dar
   // kurvan gar som fortast.
   const laps = Math.max(1, P.p) + Math.max(0, P.q) * 0.5;
-  // Bottenlaget ska vara riktigt glest: fa, stora prickar tradda pa kurvan
-  // som ett parlband, inte ett finkornigt raster som bara krympt.
-  const nv = Math.round(6 + d * 110);
-  const nu = Math.round((70 + d * 1900) * Math.min(2.4, 0.55 + laps * 0.22));
+  // Golvet gar hela vagen ner till EN prick per station, alltsa en enda
+  // strang parlor tradd pa mittlinjen. Ett glest raster ar fortfarande ett
+  // raster; ett parlband ar nagot annat, och det ar det som ska ga att na.
+  const nv = Math.max(1, Math.round(d * 116));
+  const nu = Math.round((18 + d * 1960) * Math.min(2.4, 0.55 + laps * 0.22));
   return { nu, nv, total: nu * nv };
 }
 
@@ -528,7 +533,7 @@ $("shuffle").onclick = () => {
   P.sides = Math.random() < 0.6 ? 0 : (Math.random() * 6 | 0);
   P.girth = 0.10 + Math.random() * 0.34;
   P.curl = Math.random() < 0.45 ? 1 : 1.6 + Math.random() * 1.4;
-  if(Math.random() < 0.25){ P.dots = 5 + (Math.random() * 12 | 0); P.size = 70 + (Math.random() * 70 | 0); }
+  if(Math.random() < 0.25){ P.dots = 2 + (Math.random() * 9 | 0); P.size = 120 + (Math.random() * 220 | 0); }
   P.flow = 6 + (Math.random() * 26 | 0);
   P.drift = (Math.random() * 21 | 0) - 10;
   syncUI();
@@ -661,6 +666,7 @@ function loop(now){
   gl.uniform1f(U.u_dist, dist);
   gl.uniform1f(U.u_size, P.size * 0.26);
   gl.uniform1f(U.u_dpr, dpr);
+  gl.uniform1f(U.u_psmax, PS_MAX);
   gl.uniform3f(U.u_near, pl.near[0], pl.near[1], pl.near[2]);
   gl.uniform3f(U.u_far,  pl.far[0],  pl.far[1],  pl.far[2]);
 
