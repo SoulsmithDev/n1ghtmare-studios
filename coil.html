@@ -416,7 +416,7 @@ const PS_MAX = Math.min(gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1] || 64, 5
 /* ═══════════════════════════════════════════════════════════════════
    Lage
    ═══════════════════════════════════════════════════════════════════ */
-const BUILD = "2026-09-10e";
+const BUILD = "2026-09-10f";
 $("ver").textContent = BUILD;
 
 const P = { p:1, q:0, curl:1, twist:9, sides:0, girth:0.42, dots:52, size:19,
@@ -515,6 +515,7 @@ function bind(id, out, key, read, write){
     P[key] = read(parseFloat(el.value));
     $(out).textContent = write(P[key]);
     document.querySelectorAll("#presets button").forEach(b => b.classList.remove("on"));
+    queueHash();
   });
 }
 const same = v => v;
@@ -543,6 +544,7 @@ PRESETS.forEach((pre, i) => {
     syncUI();
     presetRow.querySelectorAll("button").forEach(x => x.classList.remove("on"));
     b.classList.add("on");
+    queueHash();
   };
   if(i === 1) b.classList.add("on");
   presetRow.appendChild(b);
@@ -552,7 +554,7 @@ const palRow = $("palettes");
 PALETTES.forEach((pl, i) => {
   const b = document.createElement("button");
   b.textContent = pl.name;
-  b.onclick = () => { pal = i; syncUI(); };
+  b.onclick = () => { pal = i; syncUI(); queueHash(); };
   palRow.appendChild(b);
 });
 
@@ -568,7 +570,57 @@ $("shuffle").onclick = () => {
   P.drift = (Math.random() * 21 | 0) - 10;
   syncUI();
   presetRow.querySelectorAll("button").forEach(x => x.classList.remove("on"));
+  queueHash();
 };
+
+/* ═══════════════════════════════════════════════════════════════════
+   Laget bor i adressfaltet.
+   Formerna hittas for hand, och utan det har finns det ingen vag
+   tillbaka till en man gillade: en fin knut ar tolv reglage man inte
+   kommer ihag. Nu ar den en lank som gar att bokmarka och skicka.
+   Kameran star medvetet utanfor: den andras hela tiden medan man drar,
+   och det ar formen som ar vard att spara, inte vinkeln.
+   ═══════════════════════════════════════════════════════════════════ */
+const HASH_KEYS = ["p","q","curl","twist","sides","girth","dots","size",
+                   "spin","flow","drift","invert"];
+const HASH_PCT = { curl:1, girth:1 };   // lagras som heltalsprocent
+let hashTimer = 0;
+
+function writeHash(){
+  const v = HASH_KEYS.map(k => HASH_PCT[k] ? Math.round(P[k] * 100) : P[k]);
+  v.push(pal);
+  // replaceState och inte location.hash: annars far man en historikpost
+  // per reglagesteg och bakatknappen blir oanvandbar.
+  history.replaceState(null, "", "#" + v.join(","));
+}
+function queueHash(){
+  clearTimeout(hashTimer);
+  hashTimer = setTimeout(writeHash, 260);
+}
+function readHash(){
+  const raw = decodeURIComponent(location.hash.slice(1));
+  if(!raw) return false;
+  const v = raw.split(",").map(Number);
+  if(v.length < HASH_KEYS.length || v.some(x => !isFinite(x))) return false;
+  HASH_KEYS.forEach((k, i) => { P[k] = HASH_PCT[k] ? v[i] / 100 : v[i]; });
+  if(v.length > HASH_KEYS.length)
+    pal = clamp(Math.round(v[HASH_KEYS.length]), 0, PALETTES.length - 1);
+  // Varje varde klamps mot sitt reglage. En lank ar text nagon annan kan
+  // ha skrivit, sa den far inte kunna satta formen i ett omojligt lage.
+  P.p      = clamp(Math.round(P.p), 1, 9);
+  P.q      = clamp(Math.round(P.q), 0, 11);
+  P.curl   = clamp(P.curl, 0, 3);
+  P.twist  = clamp(Math.round(P.twist), 0, 24);
+  P.sides  = clamp(Math.round(P.sides), 0, SIDES.length - 1);
+  P.girth  = clamp(P.girth, 0.04, 0.9);
+  P.dots   = clamp(Math.round(P.dots), 1, 100);
+  P.size   = clamp(Math.round(P.size), 4, 420);
+  P.spin   = clamp(Math.round(P.spin), 0, 40);
+  P.flow   = clamp(Math.round(P.flow), 0, 40);
+  P.drift  = clamp(Math.round(P.drift), -30, 30);
+  P.invert = clamp(Math.round(P.invert), 0, 40);
+  return true;
+}
 
 const panel = $("panel"), toggle = $("toggle"), toggleLbl = toggle.querySelector("span");
 toggle.onclick = () => {
@@ -713,12 +765,17 @@ function loop(now){
 
   frames++; acc += dt;
   if(acc > 0.5){
-    hud.textContent = (c.total / 1000 | 0) + "k dots · " +
-                      Math.round(frames / acc) + " fps";
+    // Lagesbytet sitter i prickstorleken och ar avsiktligt, men utan att
+    // det star nagonstans ser det ut som att sidan hittar pa saker sjalv.
+    hud.textContent = (c.total / 1000 | 0) + "k · " +
+                      Math.round(frames / acc) + " fps · " +
+                      (solid ? "solid" : "glow");
     frames = 0; acc = 0;
   }
 }
 
+if(readHash())
+  presetRow.querySelectorAll("button").forEach(x => x.classList.remove("on"));
 syncUI();
 requestAnimationFrame(t => { last = t; loop(t); });
 
