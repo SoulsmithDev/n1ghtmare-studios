@@ -157,11 +157,12 @@
 
   <div class="sl"><label for="s-p">Winds</label><input type="range" id="s-p" min="1" max="9" step="1"><output id="o-p"></output></div>
   <div class="sl"><label for="s-q">Through</label><input type="range" id="s-q" min="0" max="11" step="1"><output id="o-q"></output></div>
+  <div class="sl"><label for="s-u">Curl</label><input type="range" id="s-u" min="0" max="300" step="5"><output id="o-u"></output></div>
   <div class="sl"><label for="s-t">Twist</label><input type="range" id="s-t" min="0" max="24" step="1"><output id="o-t"></output></div>
   <div class="sl"><label for="s-s">Section</label><input type="range" id="s-s" min="0" max="5" step="1"><output id="o-s"></output></div>
   <div class="sl"><label for="s-g">Girth</label><input type="range" id="s-g" min="12" max="90" step="1"><output id="o-g"></output></div>
-  <div class="sl"><label for="s-d">Dots</label><input type="range" id="s-d" min="10" max="100" step="1"><output id="o-d"></output></div>
-  <div class="sl"><label for="s-z">Dot size</label><input type="range" id="s-z" min="6" max="40" step="1"><output id="o-z"></output></div>
+  <div class="sl"><label for="s-d">Dots</label><input type="range" id="s-d" min="2" max="100" step="1"><output id="o-d"></output></div>
+  <div class="sl"><label for="s-z">Dot size</label><input type="range" id="s-z" min="4" max="150" step="1"><output id="o-z"></output></div>
   <div class="sl"><label for="s-r">Spin</label><input type="range" id="s-r" min="0" max="40" step="1"><output id="o-r"></output></div>
   <div class="sl"><label for="s-f">Flow</label><input type="range" id="s-f" min="0" max="40" step="1"><output id="o-f"></output></div>
   <div class="sl"><label for="s-c">Drift</label><input type="range" id="s-c" min="-30" max="30" step="1"><output id="o-c"></output></div>
@@ -207,6 +208,8 @@ uniform float u_p, u_q;        // varv runt axeln, varv genom halet
 uniform float u_twist;         // hur mycket tvarsnittet vrids per varv
 uniform float u_sides;         // 0 = cirkel, annars regelbunden n-hörning
 uniform float u_girth;         // rorets tjocklek
+uniform float u_curl;          // radiens amplitud: over 2 viker kurvan inat
+uniform float u_scale;         // haller formen lika stor i bild nar curl vaxer
 uniform float u_flow;          // prickarnas vandring langs kurvan
 uniform float u_drift;         // prickarnas vandring runt roret
 uniform mat3  u_rot;
@@ -214,6 +217,7 @@ uniform float u_aspect, u_focal, u_dist, u_size, u_dpr;
 
 out float v_shade;
 out float v_fog;
+out float v_big;
 
 const float TAU = 6.283185307179586;
 
@@ -228,7 +232,14 @@ const float TAU = 6.283185307179586;
 void spine(float t, out vec3 c, out vec3 T, out vec2 ring){
   float cp = cos(u_p * t), sp = sin(u_p * t);
   float cq = cos(u_q * t), sq = sin(u_q * t);
-  float r = 2.0 + cq, dr = -u_q * sq;
+  // Radien svanger kring 2 med amplituden u_curl. Vid 1 ar det den vanliga
+  // knuten. Over 2 gar radien genom noll, kurvan passerar mitten och kommer
+  // ut pa andra sidan, och bladen viker sig inat i stallet for utat.
+  //
+  // Ramen haller anda: den kan bara kollapsa om referensen blir parallell
+  // med tangenten, vilket kraver bade cos(qt) = 0 och r = 0 samtidigt, och
+  // de tva kan inte intraffa i samma punkt.
+  float r = 2.0 + u_curl * cq, dr = -u_q * u_curl * sq;
   c = vec3(r * cp, r * sp, -sq);
   T = normalize(vec3(dr * cp - r * u_p * sp,
                      dr * sp + r * u_p * cp,
@@ -269,12 +280,16 @@ void main(){
   float rho = u_girth * section(a, u_sides);
   vec3 pos = c + (N * cos(a) + B * sin(a)) * rho;
 
-  vec3 pr = u_rot * pos;
+  vec3 pr = u_rot * (pos * u_scale);
   float z = pr.z + u_dist;
   float w = u_focal / max(0.35, z);
 
   gl_Position  = vec4(pr.x * w / u_aspect, pr.y * w, 0.0, 1.0);
-  gl_PointSize = max(1.0, u_size * w * u_dpr);
+  float ps = max(1.0, u_size * w * u_dpr);
+  gl_PointSize = ps;
+  // Sma prickar ska vara mjuka gnistor, stora ska vara parlor. Fragmentet
+  // far veta hur stort det blev och valjer sjalv.
+  v_big = smoothstep(3.0, 11.0, ps);
 
   // Narmare = ljusare och varmare. Det ar hela djupkanslan: inga
   // skuggor, ingen djupbuffert, bara att bortre prickar tonas ner.
@@ -287,16 +302,29 @@ const FS = `#version 300 es
 precision highp float;
 in float v_shade;
 in float v_fog;
+in float v_big;
 uniform vec3 u_near, u_far;
 out vec4 o;
 void main(){
   vec2 d = gl_PointCoord - 0.5;
   float r2 = dot(d, d);
   if(r2 > 0.25) discard;
-  float a = smoothstep(0.25, 0.015, r2);
+
+  // Kanten: mjuk nar pricken ar liten, skarp nar den ar stor. En parla med
+  // suddig kant ar en flack, och en gnista med skarp kant flimrar.
+  float a = mix(smoothstep(0.25, 0.015, r2), smoothstep(0.25, 0.208, r2), v_big);
+
+  // Normalen ur pricken sjalv: den ar redan enhetslang, sa klotet kostar
+  // en rotutdragning. Ljuset sitter fast i skarmen, inte i varlden, vilket
+  // ar fel fysik och ratt kansla: parlorna behaller sin form nar man vrider.
+  vec2 q = d * 2.0;
+  float nz = sqrt(max(0.0, 1.0 - dot(q, q)));
+  float lam = max(0.0, dot(vec3(q.x, -q.y, nz), vec3(-0.42, 0.42, 0.80)));
+  float lit = mix(1.0, 0.26 + 0.92 * lam, v_big);
+
   // Additiv: dar fram- och baksidan overlappar adderas prickarna och
   // gar mot vitt. Det ar moirén, och det ar hela poangen med punkter.
-  o = vec4(mix(u_far, u_near, v_shade) * a * v_fog, 1.0);
+  o = vec4(mix(u_far, u_near, v_shade) * a * v_fog * lit, 1.0);
 }`;
 
 function compile(type, src){
@@ -323,10 +351,10 @@ const vao = gl.createVertexArray();
 /* ═══════════════════════════════════════════════════════════════════
    Lage
    ═══════════════════════════════════════════════════════════════════ */
-const BUILD = "2026-09-09b";
+const BUILD = "2026-09-10";
 $("ver").textContent = BUILD;
 
-const P = { p:1, q:0, twist:9, sides:0, girth:0.42, dots:52, size:19,
+const P = { p:1, q:0, curl:1, twist:9, sides:0, girth:0.42, dots:52, size:19,
              spin:14, flow:10, drift:5 };
 const SIDES = [0, 3, 4, 5, 6, 8];
 const SIDE_NAMES = ["○", "3", "4", "5", "6", "8"];
@@ -340,13 +368,15 @@ const PALETTES = [
 let pal = 0;
 
 const PRESETS = [
-  { name:"Ring",    p:1, q:0, twist:0,  sides:0, girth:0.42, flow:14, drift:0  },
-  { name:"Twisted", p:1, q:0, twist:9,  sides:0, girth:0.42, flow:10, drift:5  },
-  { name:"Serpent", p:1, q:6, twist:2,  sides:0, girth:0.26, flow:22, drift:9  },
-  { name:"Trefoil", p:2, q:3, twist:0,  sides:0, girth:0.30, flow:16, drift:4  },
-  { name:"Cinq",    p:2, q:5, twist:0,  sides:0, girth:0.24, flow:18, drift:0  },
-  { name:"Spool",   p:3, q:2, twist:4,  sides:0, girth:0.28, flow:12, drift:7  },
-  { name:"Forged",  p:1, q:0, twist:16, sides:2, girth:0.46, flow:6,  drift:0  },
+  { name:"Ring",    p:1, q:0, curl:1.0, twist:0,  sides:0, girth:0.42, dots:52, size:19,  flow:14, drift:0  },
+  { name:"Twisted", p:1, q:0, curl:1.0, twist:9,  sides:0, girth:0.42, dots:52, size:19,  flow:10, drift:5  },
+  { name:"Serpent", p:1, q:6, curl:1.0, twist:2,  sides:0, girth:0.26, dots:58, size:16,  flow:22, drift:9  },
+  { name:"Rosette", p:1, q:5, curl:2.6, twist:0,  sides:0, girth:0.18, dots:46, size:22,  flow:14, drift:0  },
+  { name:"Whorl",   p:2, q:7, curl:2.3, twist:3,  sides:0, girth:0.13, dots:62, size:14,  flow:20, drift:6  },
+  { name:"Beads",   p:1, q:5, curl:2.4, twist:0,  sides:0, girth:0.16, dots:7,  size:104, flow:16, drift:0  },
+  { name:"Trefoil", p:2, q:3, curl:1.0, twist:0,  sides:0, girth:0.30, dots:52, size:19,  flow:16, drift:4  },
+  { name:"Spool",   p:3, q:2, curl:1.0, twist:4,  sides:0, girth:0.28, dots:52, size:19,  flow:12, drift:7  },
+  { name:"Forged",  p:1, q:0, curl:1.0, twist:16, sides:2, girth:0.46, dots:44, size:24,  flow:6,  drift:0  },
 ];
 
 // Vy
@@ -383,14 +413,18 @@ function counts(){
   // och fler ju mer knuten lindar sig, annars glesnar prickarna dar
   // kurvan gar som fortast.
   const laps = Math.max(1, P.p) + Math.max(0, P.q) * 0.5;
-  const nv = Math.round(24 + d * 96);
-  const nu = Math.round((260 + d * 1700) * Math.min(2.4, 0.55 + laps * 0.22));
+  // Bottenlaget ska vara riktigt glest: fa, stora prickar tradda pa kurvan
+  // som ett parlband, inte ett finkornigt raster som bara krympt.
+  const nv = Math.round(6 + d * 110);
+  const nu = Math.round((70 + d * 1900) * Math.min(2.4, 0.55 + laps * 0.22));
   return { nu, nv, total: nu * nv };
 }
 
 function syncUI(){
   $("s-p").value = P.p;      $("o-p").textContent = P.p;
   $("s-q").value = P.q;      $("o-q").textContent = P.q;
+  $("s-u").value = Math.round(P.curl * 100);
+  $("o-u").textContent = Math.round(P.curl * 100) + "%";
   $("s-t").value = P.twist;  $("o-t").textContent = P.twist;
   $("s-s").value = P.sides;  $("o-s").textContent = SIDE_NAMES[P.sides];
   $("s-g").value = Math.round(P.girth * 100);
@@ -415,6 +449,7 @@ function bind(id, out, key, read, write){
 const same = v => v;
 bind("s-p", "o-p", "p",     same, v => v);
 bind("s-q", "o-q", "q",     same, v => v);
+bind("s-u", "o-u", "curl",  v => v / 100, v => Math.round(v * 100) + "%");
 bind("s-t", "o-t", "twist", same, v => v);
 bind("s-s", "o-s", "sides", same, v => SIDE_NAMES[v]);
 bind("s-g", "o-g", "girth", v => v / 100, v => Math.round(v * 100) + "%");
@@ -429,8 +464,9 @@ PRESETS.forEach((pre, i) => {
   const b = document.createElement("button");
   b.textContent = pre.name;
   b.onclick = () => {
-    P.p = pre.p; P.q = pre.q; P.twist = pre.twist;
+    P.p = pre.p; P.q = pre.q; P.curl = pre.curl; P.twist = pre.twist;
     P.sides = pre.sides; P.girth = pre.girth;
+    P.dots = pre.dots; P.size = pre.size;
     P.flow = pre.flow; P.drift = pre.drift;
     syncUI();
     presetRow.querySelectorAll("button").forEach(x => x.classList.remove("on"));
@@ -453,7 +489,9 @@ $("shuffle").onclick = () => {
   P.q = Math.random() < 0.3 ? 0 : 2 + (Math.random() * 6 | 0);
   P.twist = Math.random() < 0.5 ? 0 : (Math.random() * 18 | 0);
   P.sides = Math.random() < 0.6 ? 0 : (Math.random() * 6 | 0);
-  P.girth = 0.18 + Math.random() * 0.3;
+  P.girth = 0.10 + Math.random() * 0.34;
+  P.curl = Math.random() < 0.45 ? 1 : 1.6 + Math.random() * 1.4;
+  if(Math.random() < 0.25){ P.dots = 5 + (Math.random() * 12 | 0); P.size = 70 + (Math.random() * 70 | 0); }
   P.flow = 6 + (Math.random() * 26 | 0);
   P.drift = (Math.random() * 21 | 0) - 10;
   syncUI();
@@ -565,12 +603,16 @@ function loop(now){
   gl.uniform1f(U.u_twist, P.twist);
   gl.uniform1f(U.u_sides, SIDES[P.sides]);
   gl.uniform1f(U.u_girth, P.girth);
+  gl.uniform1f(U.u_curl, P.curl);
+  // Radien nar ut till 2 + curl, sa utan detta vaxer formen ur bild sa fort
+  // curl hojs. Referensen ar curl = 1, dar skalan blir exakt 1.
+  gl.uniform1f(U.u_scale, (3 + P.girth) / (2 + P.curl + P.girth));
   gl.uniform1f(U.u_flow, flowPh);
   gl.uniform1f(U.u_drift, driftPh);
   gl.uniform1f(U.u_aspect, W / Math.max(1, H));
   gl.uniform1f(U.u_focal, 3.9);
   gl.uniform1f(U.u_dist, dist);
-  gl.uniform1f(U.u_size, P.size * 0.09);
+  gl.uniform1f(U.u_size, P.size * 0.26);
   gl.uniform1f(U.u_dpr, dpr);
   gl.uniform3f(U.u_near, pl.near[0], pl.near[1], pl.near[2]);
   gl.uniform3f(U.u_far,  pl.far[0],  pl.far[1],  pl.far[2]);
